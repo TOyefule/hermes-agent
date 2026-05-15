@@ -278,7 +278,9 @@ const renderTable = (k: number, rows: string[][], t: Theme, cols?: number) => {
       }
     }
   } else {
-    // Tier 3: even min-widths don't fit — scale proportionally, allow hard breaks
+    // Tier 3: even min-widths don't fit — scale proportionally, allow hard breaks.
+    // NOTE: Math.max(..., MIN_COL_WIDTH) can push total above availableWidth when
+    // many columns are scaled below 3. This is caught by safetyOverflow → vertical fallback.
     needsWrap = true
     const scaleFactor = availableWidth / totalMin
     const rawAlloc = minWidths.map(w => w * scaleFactor)
@@ -406,11 +408,14 @@ const renderTable = (k: number, rows: string[][], t: Theme, cols?: number) => {
     return result
   }
 
-  // Build all lines with metadata for styling
+  // Build all lines with metadata for styling, tracking tallest body row
   const allEntries: LineEntry[] = []
+  let tallestBodyRow = 0
   normalizedRows.forEach((row, ri) => {
     const kind = ri === 0 ? 'header' as const : 'body' as const
-    buildRowLines(row).forEach(text => allEntries.push({ text, kind }))
+    const rowLines = buildRowLines(row)
+    rowLines.forEach(text => allEntries.push({ text, kind }))
+    if (ri > 0) tallestBodyRow = Math.max(tallestBodyRow, rowLines.length)
     if (ri === 0 && normalizedRows.length > 1) {
       allEntries.push({ text: sep, kind: 'separator' })
     }
@@ -422,15 +427,8 @@ const renderTable = (k: number, rows: string[][], t: Theme, cols?: number) => {
 
   // Scaled vertical threshold — 2-3 col tables stay tabular even with tall cells
   const maxRowLinesThreshold = numCols <= 3 ? 8 : numCols <= 6 ? 5 : 4
-  const tallestRow = normalizedRows.length > 1
-    ? Math.max(...normalizedRows.slice(1).map(row =>
-        Math.max(...row.map((cell, ci) =>
-          wrapCell(cell, columnWidths[ci]!, isHard).length
-        ), 1)
-      ))
-    : 0
 
-  const useVertical = tallestRow > maxRowLinesThreshold || safetyOverflow
+  const useVertical = tallestBodyRow > maxRowLinesThreshold || safetyOverflow
 
   if (useVertical) {
     // Edge case: header-only table
